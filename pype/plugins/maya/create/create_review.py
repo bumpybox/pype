@@ -21,6 +21,7 @@ class CreateReview(avalon.maya.Creator):
         for key, value in animation_data.items():
             data[key] = value
 
+        data["legacy"] = True
         data["keepImages"] = False
 
         self.data = data
