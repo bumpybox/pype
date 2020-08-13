@@ -23,5 +23,6 @@ class CreateReview(avalon.maya.Creator):
 
         data["legacy"] = True
         data["keepImages"] = False
+        data["isolate"] = False
 
         self.data = data
