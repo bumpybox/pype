@@ -109,7 +109,9 @@ def _subprocess(*args, **kwargs):
             log.error(line)
 
     if proc.returncode != 0:
-        raise ValueError("\"{}\" was not successful: {}".format(args, output))
+        raise ValueError(
+            "\"{}\" was not successful:\nOutput: {}\nError: {}".format(
+                args, output, error))
     return output
 
 
