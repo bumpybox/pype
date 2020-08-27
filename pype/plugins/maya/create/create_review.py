@@ -12,6 +12,7 @@ class CreateReview(avalon.maya.Creator):
     icon = "video-camera"
     defaults = ['Main']
     keepImages = False
+    isolate = False
 
     def __init__(self, *args, **kwargs):
         super(CreateReview, self).__init__(*args, **kwargs)
@@ -23,7 +24,7 @@ class CreateReview(avalon.maya.Creator):
             data[key] = value
 
         data["legacy"] = True
+        data["isolate"] = self.isolate
         data["keepImages"] = self.keepImages
-        data["isolate"] = False
 
         self.data = data
