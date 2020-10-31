@@ -1,6 +1,6 @@
 import pyblish.api
 import pype.api
-import pype.maya.action
+import pype.hosts.maya.action
 
 
 class ValidateAnimationContent(pyblish.api.InstancePlugin):
@@ -15,7 +15,7 @@ class ValidateAnimationContent(pyblish.api.InstancePlugin):
     hosts = ["maya"]
     families = ["animation"]
     label = "Animation Content"
-    actions = [pype.maya.action.SelectInvalidAction]
+    actions = [pype.hosts.maya.action.SelectInvalidAction]
 
     @classmethod
     def get_invalid(cls, instance):
@@ -29,6 +29,10 @@ class ValidateAnimationContent(pyblish.api.InstancePlugin):
                          % instance.name)
 
         assert 'out_hierarchy' in instance.data, "Missing `out_hierarchy` data"
+
+        out_sets = [node for node in instance if node.endswith("out_SET")]
+        msg = "Couldn't find exactly one out_SET: {0}".format(out_sets)
+        assert len(out_sets) == 1, msg
 
         # All nodes in the `out_hierarchy` must be among the nodes that are
         # in the instance. The nodes in the instance are found from the top

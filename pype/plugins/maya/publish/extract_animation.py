@@ -4,7 +4,7 @@ from maya import cmds
 
 import avalon.maya
 import pype.api
-from pype.maya.lib import extract_alembic
+from pype.hosts.maya.lib import extract_alembic
 
 
 class ExtractAnimation(pype.api.Extractor):
@@ -20,13 +20,17 @@ class ExtractAnimation(pype.api.Extractor):
     families = ["animation"]
 
     def process(self, instance):
+        if instance.data.get("farm"):
+            path = os.path.join(
+                os.path.dirname(instance.context.data["currentFile"]),
+                "cache",
+                instance.data["name"] + ".abc"
+            )
+            instance.data["expectedFiles"] = [os.path.normpath(path)]
+            return
 
         # Collect the out set nodes
-        out_sets = [node for node in instance if node.endswith("out_SET")]
-        if len(out_sets) != 1:
-            raise RuntimeError("Couldn't find exactly one out_SET: "
-                               "{0}".format(out_sets))
-        out_set = out_sets[0]
+        out_set = [node for node in instance if node.endswith("out_SET")][0]
         roots = cmds.sets(out_set, query=True)
 
         # Include all descendants
@@ -37,7 +41,7 @@ class ExtractAnimation(pype.api.Extractor):
         # Collect the start and end including handles
         start = instance.data["frameStart"]
         end = instance.data["frameEnd"]
-        handles = instance.data.get("handles", 0)
+        handles = instance.data.get("handles", 0) or 0
         if handles:
             start -= handles
             end += handles
@@ -50,7 +54,7 @@ class ExtractAnimation(pype.api.Extractor):
         path = os.path.join(parent_dir, filename)
 
         options = {
-            "step": instance.data.get("step", 1.0),
+            "step": instance.data.get("step", 1.0) or 1.0,
             "attr": ["cbId"],
             "writeVisibility": True,
             "writeCreases": True,
@@ -74,8 +78,8 @@ class ExtractAnimation(pype.api.Extractor):
             with avalon.maya.maintained_selection():
                 cmds.select(nodes, noExpand=True)
                 extract_alembic(file=path,
-                                startFrame=start,
-                                endFrame=end,
+                                startFrame=float(start),
+                                endFrame=float(end),
                                 **options)
 
         if "representations" not in instance.data:

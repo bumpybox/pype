@@ -30,10 +30,15 @@ class IntegrateFtrackInstance(pyblish.api.InstancePlugin):
                       'audio': 'audio',
                       'workfile': 'scene',
                       'animation': 'cache',
-                      'image': 'img'
+                      'image': 'img',
+                      'reference': 'reference'
                       }
 
     def process(self, instance):
+        # Ignore instances going to Deadline.
+        if "deadline" in instance.data["families"]:
+            return
+
         self.ftrack_locations = {}
         self.log.debug('instance {}'.format(instance))
 
@@ -44,10 +49,14 @@ class IntegrateFtrackInstance(pyblish.api.InstancePlugin):
 
         family = instance.data['family'].lower()
 
-        asset_type = ''
-        asset_type = instance.data.get(
-            "ftrackFamily", self.family_mapping[family]
-        )
+        asset_type = instance.data.get("ftrackFamily")
+        if not asset_type and family in self.family_mapping:
+            asset_type = self.family_mapping[family]
+
+        # Ignore this instance if neither "ftrackFamily" or a family mapping is
+        # found.
+        if not asset_type:
+            return
 
         componentList = []
         ft_session = instance.context.data["ftrackSession"]
@@ -63,7 +72,7 @@ class IntegrateFtrackInstance(pyblish.api.InstancePlugin):
                     "name": "thumbnail"  # Default component name is "main".
                 }
                 comp['thumbnail'] = True
-            elif comp.get('preview') or ("preview" in comp.get('tags', [])):
+            elif comp.get('ftrackreview') or ("ftrackreview" in comp.get('tags', [])):
                 '''
                 Ftrack bug requirement:
                     - Start frame must be 0
@@ -143,6 +152,7 @@ class IntegrateFtrackInstance(pyblish.api.InstancePlugin):
             # Create copy with ftrack.unmanaged location if thumb or prev
             if comp.get('thumbnail') or comp.get('preview') \
                     or ("preview" in comp.get('tags', [])) \
+                    or ("review" in comp.get('tags', [])) \
                     or ("thumbnail" in comp.get('tags', [])):
                 unmanaged_loc = self.get_ftrack_location(
                     'ftrack.unmanaged', ft_session

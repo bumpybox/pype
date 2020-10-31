@@ -7,15 +7,19 @@ import json
 import collections
 import logging
 import itertools
+import copy
 import contextlib
 import subprocess
+import getpass
 import inspect
+import acre
+import platform
 from abc import ABCMeta, abstractmethod
 
 from avalon import io, pipeline
 import six
 import avalon.api
-from pypeapp import config
+from .api import config, Anatomy
 
 log = logging.getLogger(__name__)
 
@@ -109,7 +113,9 @@ def _subprocess(*args, **kwargs):
             log.error(line)
 
     if proc.returncode != 0:
-        raise ValueError("\"{}\" was not successful: {}".format(args, output))
+        raise ValueError(
+            "\"{}\" was not successful:\nOutput: {}\nError: {}".format(
+                args, output, error))
     return output
 
 
@@ -458,7 +464,7 @@ def get_version_from_path(file):
         v: version number in string ('001')
 
     """
-    pattern = re.compile(r"[\._]v([0-9]+)")
+    pattern = re.compile(r"[\._]v([0-9]+)", re.IGNORECASE)
     try:
         return pattern.findall(file)[0]
     except IndexError:
@@ -467,6 +473,43 @@ def get_version_from_path(file):
             "`{}` missing version string."
             "Example `v004`".format(file)
         )
+
+
+def get_last_version_from_path(path_dir, filter):
+    """
+    Finds last version of given directory content
+
+    Args:
+        path_dir (string): directory path
+        filter (list): list of strings used as file name filter
+
+    Returns:
+        string: file name with last version
+
+    Example:
+        last_version_file = get_last_version_from_path(
+            "/project/shots/shot01/work", ["shot01", "compositing", "nk"])
+    """
+
+    assert os.path.isdir(path_dir), "`path_dir` argument needs to be directory"
+    assert isinstance(filter, list) and (
+        len(filter) != 0), "`filter` argument needs to be list and not empty"
+
+    filtred_files = list()
+
+    # form regex for filtering
+    patern = r".*".join(filter)
+
+    for f in os.listdir(path_dir):
+        if not re.findall(patern, f):
+            continue
+        filtred_files.append(f)
+
+    if filtred_files:
+        sorted(filtred_files)
+        return filtred_files[-1]
+    else:
+        return None
 
 
 def get_avalon_database():
@@ -480,14 +523,6 @@ def set_io_database():
     for key in required_keys:
         os.environ[key] = os.environ.get(key, "")
     io.install()
-
-
-def get_all_avalon_projects():
-    db = get_avalon_database()
-    projects = []
-    for name in db.collection_names():
-        projects.append(db[name].find_one({'type': 'project'}))
-    return projects
 
 
 def filter_pyblish_plugins(plugins):
@@ -610,7 +645,7 @@ def get_subsets(asset_name,
 
         if len(repres_out) > 0:
             output_dict[subset["name"]] = {"version": version_sel,
-                                           "representaions": repres_out}
+                                           "representations": repres_out}
 
     return output_dict
 
@@ -659,7 +694,7 @@ def execute_hook(hook, *args, **kwargs):
     This will load hook file, instantiate class and call `execute` method
     on it. Hook must be in a form:
 
-    `$PYPE_ROOT/repos/pype/path/to/hook.py/HookClass`
+    `$PYPE_SETUP_PATH/repos/pype/path/to/hook.py/HookClass`
 
     This will load `hook.py`, instantiate HookClass and then execute_hook
     `execute(*args, **kwargs)`
@@ -670,7 +705,7 @@ def execute_hook(hook, *args, **kwargs):
 
     class_name = hook.split("/")[-1]
 
-    abspath = os.path.join(os.getenv('PYPE_ROOT'),
+    abspath = os.path.join(os.getenv('PYPE_SETUP_PATH'),
                            'repos', 'pype', *hook.split("/")[:-1])
 
     mod_name, mod_ext = os.path.splitext(os.path.basename(abspath))
@@ -711,8 +746,9 @@ class PypeHook:
 
 def get_linked_assets(asset_entity):
     """Return linked assets for `asset_entity`."""
-    # TODO implement
-    return []
+    inputs = asset_entity["data"].get("inputs", [])
+    inputs = [io.find_one({"_id": x}) for x in inputs]
+    return inputs
 
 
 def map_subsets_by_family(subsets):
@@ -802,10 +838,10 @@ class BuildWorkfile:
         current_task_name = io.Session["AVALON_TASK"]
 
         # Load workfile presets for task
-        build_presets = self.get_build_presets(current_task_name)
+        self.build_presets = self.get_build_presets(current_task_name)
 
         # Skip if there are any presets for task
-        if not build_presets:
+        if not self.build_presets:
             log.warning(
                 "Current task `{}` does not have any loading preset.".format(
                     current_task_name
@@ -814,9 +850,9 @@ class BuildWorkfile:
             return
 
         # Get presets for loading current asset
-        current_context_profiles = build_presets.get("current_context")
+        current_context_profiles = self.build_presets.get("current_context")
         # Get presets for loading linked assets
-        link_context_profiles = build_presets.get("linked_assets")
+        link_context_profiles = self.build_presets.get("linked_assets")
         # Skip if both are missing
         if not current_context_profiles and not link_context_profiles:
             log.warning("Current task `{}` has empty loading preset.".format(
@@ -1169,7 +1205,36 @@ class BuildWorkfile:
         :rtype: list
         """
         loaded_containers = []
-        for subset_id, repres in repres_by_subset_id.items():
+
+        # Get subset id order from build presets.
+        build_presets = self.build_presets.get("current_context", [])
+        build_presets += self.build_presets.get("linked_assets", [])
+        subset_ids_ordered = []
+        for preset in build_presets:
+            for preset_family in preset["families"]:
+                for id, subset in subsets_by_id.items():
+                    if preset_family not in subset["data"].get("families", []):
+                        continue
+
+                    subset_ids_ordered.append(id)
+
+        # Order representations from subsets.
+        print("repres_by_subset_id", repres_by_subset_id)
+        representations_ordered = []
+        representations = []
+        for id in subset_ids_ordered:
+            for subset_id, repres in repres_by_subset_id.items():
+                if repres in representations:
+                    continue
+
+                if id == subset_id:
+                    representations_ordered.append((subset_id, repres))
+                    representations.append(repres)
+
+        print("representations", representations)
+
+        # Load ordered reprensentations.
+        for subset_id, repres in representations_ordered:
             subset_name = subsets_by_id[subset_id]["name"]
 
             profile = profiles_per_subset_id[subset_id]
@@ -1327,3 +1392,287 @@ class BuildWorkfile:
             )
 
         return output
+
+
+def ffprobe_streams(path_to_file):
+    """Load streams from entered filepath via ffprobe."""
+    log.info(
+        "Getting information about input \"{}\".".format(path_to_file)
+    )
+    args = [
+        get_ffmpeg_tool_path("ffprobe"),
+        "-v quiet",
+        "-print_format json",
+        "-show_format",
+        "-show_streams",
+        "\"{}\"".format(path_to_file)
+    ]
+    command = " ".join(args)
+    log.debug("FFprobe command: \"{}\"".format(command))
+    popen = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
+
+    popen_output = popen.communicate()[0]
+    log.debug("FFprobe output: {}".format(popen_output))
+    return json.loads(popen_output)["streams"]
+
+
+def source_hash(filepath, *args):
+    """Generate simple identifier for a source file.
+    This is used to identify whether a source file has previously been
+    processe into the pipeline, e.g. a texture.
+    The hash is based on source filepath, modification time and file size.
+    This is only used to identify whether a specific source file was already
+    published before from the same location with the same modification date.
+    We opt to do it this way as opposed to Avalanch C4 hash as this is much
+    faster and predictable enough for all our production use cases.
+    Args:
+        filepath (str): The source file path.
+    You can specify additional arguments in the function
+    to allow for specific 'processing' values to be included.
+    """
+    # We replace dots with comma because . cannot be a key in a pymongo dict.
+    file_name = os.path.basename(filepath)
+    time = str(os.path.getmtime(filepath))
+    size = str(os.path.getsize(filepath))
+    return "|".join([file_name, time, size] + list(args)).replace(".", ",")
+
+
+def get_latest_version(asset_name, subset_name):
+    """Retrieve latest version from `asset_name`, and `subset_name`.
+
+    Args:
+        asset_name (str): Name of asset.
+        subset_name (str): Name of subset.
+    """
+    # Get asset
+    asset_name = io.find_one(
+        {"type": "asset", "name": asset_name}, projection={"name": True}
+    )
+
+    subset = io.find_one(
+        {"type": "subset", "name": subset_name, "parent": asset_name["_id"]},
+        projection={"_id": True, "name": True},
+    )
+
+    # Check if subsets actually exists.
+    assert subset, "No subsets found."
+
+    # Get version
+    version_projection = {
+        "name": True,
+        "parent": True,
+    }
+
+    version = io.find_one(
+        {"type": "version", "parent": subset["_id"]},
+        projection=version_projection,
+        sort=[("name", -1)],
+    )
+
+    assert version, "No version found, this is a bug"
+
+    return version
+
+
+class ApplicationLaunchFailed(Exception):
+    pass
+
+
+def launch_application(project_name, asset_name, task_name, app_name):
+    database = get_avalon_database()
+    project_document = database[project_name].find_one({"type": "project"})
+    asset_document = database[project_name].find_one({
+        "type": "asset",
+        "name": asset_name
+    })
+
+    asset_doc_parents = asset_document["data"].get("parents")
+    hierarchy = "/".join(asset_doc_parents)
+
+    app_def = avalon.lib.get_application(app_name)
+    app_label = app_def.get("ftrack_label", app_def.get("label", app_name))
+
+    host_name = app_def["application_dir"]
+    data = {
+        "project": {
+            "name": project_document["name"],
+            "code": project_document["data"].get("code")
+        },
+        "task": task_name,
+        "asset": asset_name,
+        "app": host_name,
+        "hierarchy": hierarchy
+    }
+
+    try:
+        anatomy = Anatomy(project_name)
+        anatomy_filled = anatomy.format(data)
+        workdir = os.path.normpath(anatomy_filled["work"]["folder"])
+
+    except Exception as exc:
+        raise ApplicationLaunchFailed(
+            "Error in anatomy.format: {}".format(str(exc))
+        )
+
+    try:
+        os.makedirs(workdir)
+    except FileExistsError:
+        pass
+
+    last_workfile_path = None
+    extensions = avalon.api.HOST_WORKFILE_EXTENSIONS.get(host_name)
+    if extensions:
+        # Find last workfile
+        file_template = anatomy.templates["work"]["file"]
+        data.update({
+            "version": 1,
+            "user": os.environ.get("PYPE_USERNAME") or getpass.getuser(),
+            "ext": extensions[0]
+        })
+
+        last_workfile_path = avalon.api.last_workfile(
+            workdir, file_template, data, extensions, True
+        )
+
+    # set environments for Avalon
+    prep_env = copy.deepcopy(os.environ)
+    prep_env.update({
+        "AVALON_PROJECT": project_name,
+        "AVALON_ASSET": asset_name,
+        "AVALON_TASK": task_name,
+        "AVALON_APP": host_name,
+        "AVALON_APP_NAME": app_name,
+        "AVALON_HIERARCHY": hierarchy,
+        "AVALON_WORKDIR": workdir
+    })
+
+    start_last_workfile = avalon.api.should_start_last_workfile(
+        project_name, host_name, task_name
+    )
+    # Store boolean as "0"(False) or "1"(True)
+    prep_env["AVALON_OPEN_LAST_WORKFILE"] = (
+        str(int(bool(start_last_workfile)))
+    )
+
+    if (
+        start_last_workfile
+        and last_workfile_path
+        and os.path.exists(last_workfile_path)
+    ):
+        prep_env["AVALON_LAST_WORKFILE"] = last_workfile_path
+
+    prep_env.update(anatomy.roots_obj.root_environments())
+
+    # collect all the 'environment' attributes from parents
+    tools_attr = [prep_env["AVALON_APP"], prep_env["AVALON_APP_NAME"]]
+    tools_env = asset_document["data"].get("tools_env") or []
+    tools_attr.extend(tools_env)
+
+    tools_env = acre.get_tools(tools_attr)
+    env = acre.compute(tools_env)
+    env = acre.merge(env, current_env=dict(prep_env))
+
+    # Get path to execute
+    st_temp_path = os.environ["PYPE_CONFIG"]
+    os_plat = platform.system().lower()
+
+    # Path to folder with launchers
+    path = os.path.join(st_temp_path, "launchers", os_plat)
+
+    # Full path to executable launcher
+    execfile = None
+
+    launch_hook = app_def.get("launch_hook")
+    if launch_hook:
+        log.info("launching hook: {}".format(launch_hook))
+        ret_val = execute_hook(launch_hook, env=env)
+        if not ret_val:
+            raise ApplicationLaunchFailed(
+                "Hook didn't finish successfully {}".format(app_label)
+            )
+
+    if sys.platform == "win32":
+        for ext in os.environ["PATHEXT"].split(os.pathsep):
+            fpath = os.path.join(path.strip('"'), app_def["executable"] + ext)
+            if os.path.isfile(fpath) and os.access(fpath, os.X_OK):
+                execfile = fpath
+                break
+
+        # Run SW if was found executable
+        if execfile is None:
+            raise ApplicationLaunchFailed(
+                "We didn't find launcher for {}".format(app_label)
+            )
+
+        popen = avalon.lib.launch(
+            executable=execfile, args=[], environment=env
+        )
+
+    elif (
+        sys.platform.startswith("linux")
+        or sys.platform.startswith("darwin")
+    ):
+        execfile = os.path.join(path.strip('"'), app_def["executable"])
+        # Run SW if was found executable
+        if execfile is None:
+            raise ApplicationLaunchFailed(
+                "We didn't find launcher for {}".format(app_label)
+            )
+
+        if not os.path.isfile(execfile):
+            raise ApplicationLaunchFailed(
+                "Launcher doesn't exist - {}".format(execfile)
+            )
+
+        try:
+            fp = open(execfile)
+        except PermissionError as perm_exc:
+            raise ApplicationLaunchFailed(
+                "Access denied on launcher {} - {}".format(execfile, perm_exc)
+            )
+
+        fp.close()
+        # check executable permission
+        if not os.access(execfile, os.X_OK):
+            raise ApplicationLaunchFailed(
+                "No executable permission - {}".format(execfile)
+            )
+
+        popen = avalon.lib.launch(  # noqa: F841
+            "/usr/bin/env", args=["bash", execfile], environment=env
+        )
+    return popen
+
+
+class ApplicationAction(avalon.api.Action):
+    """Default application launcher
+
+    This is a convenience application Action that when "config" refers to a
+    parsed application `.toml` this can launch the application.
+
+    """
+
+    config = None
+    group = None
+    variant = None
+    required_session_keys = (
+        "AVALON_PROJECT",
+        "AVALON_ASSET",
+        "AVALON_TASK"
+    )
+
+    def is_compatible(self, session):
+        for key in self.required_session_keys:
+            if key not in session:
+                return False
+        return True
+
+    def process(self, session, **kwargs):
+        """Process the full Application action"""
+
+        project_name = session["AVALON_PROJECT"]
+        asset_name = session["AVALON_ASSET"]
+        task_name = session["AVALON_TASK"]
+        return launch_application(
+            project_name, asset_name, task_name, self.name
+        )

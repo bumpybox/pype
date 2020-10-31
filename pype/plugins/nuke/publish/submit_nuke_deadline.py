@@ -28,6 +28,7 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
     deadline_chunk_size = 1
 
     def process(self, instance):
+        instance.data["toBeRenderedOn"] = "deadline"
         families = instance.data["families"]
 
         node = instance[0]
@@ -48,6 +49,24 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
         # get output path
         render_path = instance.data['path']
         script_path = context.data["currentFile"]
+
+        for item in context:
+            if "workfile" in item.data["families"]:
+                msg = "Workfile (scene) must be published along"
+                assert item.data["publish"] is True, msg
+
+                template_data = item.data.get("anatomyData")
+                rep = item.data.get("representations")[0].get("name")
+                template_data["representation"] = rep
+                template_data["ext"] = rep
+                template_data["comment"] = None
+                anatomy_filled = context.data["anatomy"].format(template_data)
+                template_filled = anatomy_filled["publish"]["path"]
+                script_path = os.path.normpath(template_filled)
+
+                self.log.info(
+                    "Using published scene for render {}".format(script_path)
+                )
 
         # exception for slate workflow
         if "slate" in instance.data["families"]:
@@ -183,7 +202,7 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
                 "BatchName": responce_data["Props"]["Batch"],
                 "JobDependency0": responce_data["_id"],
                 "ChunkSize": 99999999
-                })
+            })
 
         # Include critical environment variables with submission
         keys = [
@@ -195,7 +214,8 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
             "FTRACK_SERVER",
             "PYBLISHPLUGINPATH",
             "NUKE_PATH",
-            "TOOL_ENV"
+            "TOOL_ENV",
+            "PYPE_DEV"
         ]
         environment = dict({key: os.environ[key] for key in keys
                             if key in os.environ}, **api.Session)
@@ -204,40 +224,32 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
             if path.lower().startswith('pype_'):
                 environment[path] = os.environ[path]
 
-        environment["PATH"] = os.environ["PATH"]
+        # environment["PATH"] = os.environ["PATH"]
         # self.log.debug("enviro: {}".format(environment['PYPE_SCRIPTS']))
         clean_environment = {}
-        for key in environment:
+        for key, value in environment.items():
             clean_path = ""
             self.log.debug("key: {}".format(key))
-            to_process = environment[key]
-            if key == "PYPE_STUDIO_CORE_MOUNT":
-                clean_path = environment[key]
-            elif "://" in environment[key]:
-                clean_path = environment[key]
-            elif os.pathsep not in to_process:
-                try:
-                    path = environment[key]
-                    path.decode('UTF-8', 'strict')
-                    clean_path = os.path.normpath(path)
-                except UnicodeDecodeError:
-                    print('path contains non UTF characters')
+            if "://" in value:
+                clean_path = value
             else:
-                for path in environment[key].split(os.pathsep):
+                valid_paths = []
+                for path in value.split(os.pathsep):
+                    if not path:
+                        continue
                     try:
                         path.decode('UTF-8', 'strict')
-                        clean_path += os.path.normpath(path) + os.pathsep
+                        valid_paths.append(os.path.normpath(path))
                     except UnicodeDecodeError:
                         print('path contains non UTF characters')
+
+                if valid_paths:
+                    clean_path = os.pathsep.join(valid_paths)
 
             if key == "PYTHONPATH":
                 clean_path = clean_path.replace('python2', 'python3')
 
-            clean_path = clean_path.replace(
-                                    os.path.normpath(
-                                        environment['PYPE_STUDIO_CORE_MOUNT']),  # noqa
-                                    os.path.normpath(
-                                        environment['PYPE_STUDIO_CORE_PATH']))   # noqa
+            self.log.debug("clean path: {}".format(clean_path))
             clean_environment[key] = clean_path
 
         environment = clean_environment
@@ -259,7 +271,7 @@ class NukeSubmitDeadline(pyblish.api.InstancePlugin):
         self.expected_files(instance, render_path)
         self.log.debug("__ expectedFiles: `{}`".format(
             instance.data["expectedFiles"]))
-        response = requests.post(self.deadline_url, json=payload)
+        response = requests.post(self.deadline_url, json=payload, timeout=10)
 
         if not response.ok:
             raise Exception(response.text)

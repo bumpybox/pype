@@ -2,8 +2,8 @@ import os
 
 from pyblish import api as pyblish
 from avalon import api as avalon
+from .api import config, Anatomy
 from .lib import filter_pyblish_plugins
-from pypeapp import config
 
 
 import logging
@@ -99,6 +99,10 @@ def install():
                 avalon.register_plugin_path(avalon.Creator, path)
                 avalon.register_plugin_path(avalon.InventoryAction, path)
 
+    if project_name:
+        anatomy = Anatomy(project_name)
+        anatomy.set_root_environments()
+        avalon.register_root(anatomy.roots)
     # apply monkey patched discover to original one
     avalon.discover = patched_discover
 

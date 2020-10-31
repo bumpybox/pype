@@ -9,7 +9,6 @@
     "additionalProperties": true,
 
     "required": [
-        "AVALON_PROJECTS",
         "AVALON_PROJECT",
         "AVALON_ASSET",
         "AVALON_CONFIG"
@@ -56,13 +55,6 @@
             "type": "string",
             "pattern": "^\\w*$",
             "example": "maya2016"
-        },
-        "AVALON_MONGO": {
-            "description": "Address to the asset database",
-            "type": "string",
-            "pattern": "^mongodb://[\\w/@:.]*$",
-            "example": "mongodb://localhost:27017",
-            "default": "mongodb://localhost:27017"
         },
         "AVALON_DB": {
             "description": "Name of database",

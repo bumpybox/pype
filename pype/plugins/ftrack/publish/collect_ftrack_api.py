@@ -22,7 +22,7 @@ class CollectFtrackApi(pyblish.api.ContextPlugin):
         ftrack_log.setLevel(logging.WARNING)
 
         # Collect session
-        session = ftrack_api.Session()
+        session = ftrack_api.Session(auto_connect_event_hub=True)
         self.log.debug("Ftrack user: \"{0}\"".format(session.api_user))
         context.data["ftrackSession"] = session
 
@@ -96,6 +96,6 @@ class CollectFtrackApi(pyblish.api.ContextPlugin):
             task_entity = None
             self.log.warning("Task name is not set.")
 
-        context.data["ftrackProject"] = asset_entity
+        context.data["ftrackProject"] = project_entity
         context.data["ftrackEntity"] = asset_entity
         context.data["ftrackTask"] = task_entity

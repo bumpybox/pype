@@ -14,10 +14,20 @@ class ExtractJpegEXR(pyblish.api.InstancePlugin):
     families = ["imagesequence", "render", "render2d", "source"]
     enabled = False
 
-    def process(self, instance):
+    # presetable attribute
+    ffmpeg_args = None
 
+    def process(self, instance):
         self.log.info("subset {}".format(instance.data['subset']))
         if 'crypto' in instance.data['subset']:
+            return
+
+        # ffmpeg doesn't support multipart exrs
+        if instance.data.get("multipartExr") is True:
+            return
+
+        # Skip review when requested.
+        if not instance.data.get("review", True):
             return
 
         # get representation and loop them
@@ -26,6 +36,10 @@ class ExtractJpegEXR(pyblish.api.InstancePlugin):
         # filter out mov and img sequences
         representations_new = representations[:]
 
+        if instance.data.get("multipartExr"):
+            # ffmpeg doesn't support multipart exrs
+            return
+
         for repre in representations:
             tags = repre.get("tags", [])
             self.log.debug(repre)
@@ -33,15 +47,12 @@ class ExtractJpegEXR(pyblish.api.InstancePlugin):
             if not valid:
                 continue
 
-            if not isinstance(repre['files'], list):
-                continue
-
-            if "multipartExr" in tags:
-                # ffmpeg doesn't support multipart exrs
-                continue
+            if not isinstance(repre['files'], (list, tuple)):
+                input_file = repre['files']
+            else:
+                input_file = repre['files'][0]
 
             stagingdir = os.path.normpath(repre.get("stagingDir"))
-            input_file = repre['files'][0]
 
             # input_file = (
             #     collections[0].format('{head}{padding}{tail}') % start
@@ -57,21 +68,24 @@ class ExtractJpegEXR(pyblish.api.InstancePlugin):
 
             self.log.info("output {}".format(full_output_path))
 
-            config_data = instance.context.data['output_repre_config']
-
-            proj_name = os.environ.get('AVALON_PROJECT', '__default__')
-            profile = config_data.get(proj_name, config_data['__default__'])
-
             ffmpeg_path = pype.lib.get_ffmpeg_tool_path("ffmpeg")
+            ffmpeg_args = self.ffmpeg_args or {}
 
             jpeg_items = []
             jpeg_items.append(ffmpeg_path)
             # override file if already exists
             jpeg_items.append("-y")
             # use same input args like with mov
-            jpeg_items.extend(profile.get('input', []))
+            jpeg_items.extend(ffmpeg_args.get("input") or [])
             # input file
             jpeg_items.append("-i {}".format(full_input_path))
+            # output arguments from presets
+            jpeg_items.extend(ffmpeg_args.get("output") or [])
+
+            # If its a movie file, we just want one frame.
+            if repre["ext"] == "mov":
+                jpeg_items.append("-vframes 1")
+
             # output file
             jpeg_items.append(full_output_path)
 
@@ -79,7 +93,7 @@ class ExtractJpegEXR(pyblish.api.InstancePlugin):
 
             # run subprocess
             self.log.debug("{}".format(subprocess_jpeg))
-            pype.api.subprocess(subprocess_jpeg)
+            pype.api.subprocess(subprocess_jpeg, shell=True)
 
             if "representations" not in instance.data:
                 instance.data["representations"] = []

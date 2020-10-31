@@ -4,7 +4,7 @@ import glob
 
 import capture
 
-import pype.maya.lib as lib
+from pype.hosts.maya import lib
 import pype.api
 
 from maya import cmds
@@ -76,6 +76,11 @@ class ExtractThumbnail(pype.api.Extractor):
         refreshFrameInt = int(pm.playbackOptions(q=True, minTime=True))
         pm.currentTime(refreshFrameInt - 1, edit=True)
         pm.currentTime(refreshFrameInt, edit=True)
+
+        # Isolate view is requested by having objects in the set besides a
+        # camera.
+        if instance.data.get("isolate"):
+            preset["isolate"] = instance.data["setMembers"]
 
         with maintained_time():
             filename = preset.get("filename", "%TEMP%")

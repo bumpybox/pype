@@ -7,12 +7,12 @@ from typing import Dict, List, Optional
 
 from avalon import api, blender
 import bpy
-import pype.blender.plugin
+import pype.hosts.blender.plugin
 
 logger = logging.getLogger("pype").getChild("blender").getChild("load_action")
 
 
-class BlendActionLoader(pype.blender.plugin.AssetLoader):
+class BlendActionLoader(pype.hosts.blender.plugin.AssetLoader):
     """Load action from a .blend file.
 
     Warning:
@@ -42,8 +42,8 @@ class BlendActionLoader(pype.blender.plugin.AssetLoader):
         libpath = self.fname
         asset = context["asset"]["name"]
         subset = context["subset"]["name"]
-        lib_container = pype.blender.plugin.asset_name(asset, subset)
-        container_name = pype.blender.plugin.asset_name(
+        lib_container = pype.hosts.blender.plugin.asset_name(asset, subset)
+        container_name = pype.hosts.blender.plugin.asset_name(
             asset, subset, namespace
         )
 
@@ -149,7 +149,7 @@ class BlendActionLoader(pype.blender.plugin.AssetLoader):
         assert libpath.is_file(), (
             f"The file doesn't exist: {libpath}"
         )
-        assert extension in pype.blender.plugin.VALID_EXTENSIONS, (
+        assert extension in pype.hosts.blender.plugin.VALID_EXTENSIONS, (
             f"Unsupported file: {libpath}"
         )
 
@@ -174,22 +174,16 @@ class BlendActionLoader(pype.blender.plugin.AssetLoader):
 
         strips = []
 
-        for obj in collection_metadata["objects"]:
-
+        for obj in list(collection_metadata["objects"]):
             # Get all the strips that use the action
             arm_objs = [
                 arm for arm in bpy.data.objects if arm.type == 'ARMATURE']
 
             for armature_obj in arm_objs:
-
                 if armature_obj.animation_data is not None:
-
                     for track in armature_obj.animation_data.nla_tracks:
-
                         for strip in track.strips:
-
                             if strip.action == obj.animation_data.action:
-
                                 strips.append(strip)
 
             bpy.data.actions.remove(obj.animation_data.action)
@@ -277,22 +271,16 @@ class BlendActionLoader(pype.blender.plugin.AssetLoader):
         objects = collection_metadata["objects"]
         lib_container = collection_metadata["lib_container"]
 
-        for obj in objects:
-
+        for obj in list(objects):
             # Get all the strips that use the action
             arm_objs = [
                 arm for arm in bpy.data.objects if arm.type == 'ARMATURE']
 
             for armature_obj in arm_objs:
-
                 if armature_obj.animation_data is not None:
-
                     for track in armature_obj.animation_data.nla_tracks:
-
                         for strip in track.strips:
-
                             if strip.action == obj.animation_data.action:
-
                                 track.strips.remove(strip)
 
             bpy.data.actions.remove(obj.animation_data.action)

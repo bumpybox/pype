@@ -79,8 +79,7 @@ class CollectNukeWrites(pyblish.api.InstancePlugin):
                 representation = {
                     'name': ext,
                     'ext': ext,
-                    "stagingDir": output_dir,
-                    "anatomy_template": "render"
+                    "stagingDir": output_dir
                 }
 
             try:
@@ -116,10 +115,9 @@ class CollectNukeWrites(pyblish.api.InstancePlugin):
 
         # Add version data to instance
         version_data = {
-            "colorspace":  node["colorspace"].value(),
+            "colorspace": node["colorspace"].value(),
         }
 
-        instance.data["family"] = "write"
         group_node = [x for x in instance if x.Class() == "Group"][0]
         deadlineChunkSize = 1
         if "deadlineChunkSize" in group_node.knobs():
@@ -128,8 +126,6 @@ class CollectNukeWrites(pyblish.api.InstancePlugin):
         deadlinePriority = 50
         if "deadlinePriority" in group_node.knobs():
             deadlinePriority = group_node["deadlinePriority"].value()
-
-        families = [f for f in instance.data["families"] if "write" not in f]
 
         instance.data.update({
             "versionData": version_data,
@@ -144,7 +140,6 @@ class CollectNukeWrites(pyblish.api.InstancePlugin):
             "frameStartHandle": first_frame,
             "frameEndHandle": last_frame,
             "outputType": output_type,
-            "family": "write",
             "families": families,
             "colorspace": node["colorspace"].value(),
             "deadlineChunkSize": deadlineChunkSize,

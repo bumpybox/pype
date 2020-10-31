@@ -3,7 +3,7 @@ import nuke
 import contextlib
 
 from avalon import api, io
-from pype.nuke import presets
+from pype.hosts.nuke import presets
 
 
 @contextlib.contextmanager
@@ -70,7 +70,7 @@ def loader_shift(node, frame, relative=True):
 class LoadSequence(api.Loader):
     """Load image sequence into Nuke"""
 
-    families = ["render2d", "source", "plate", "render", "prerender"]
+    families = ["render2d", "source", "plate", "render", "prerender", "review"]
     representations = ["exr", "dpx", "jpg", "jpeg", "png"]
 
     label = "Load sequence"

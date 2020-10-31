@@ -15,10 +15,12 @@ class ExtractThumbnail(pype.api.Extractor):
     order = pyblish.api.ExtractorOrder + 0.01
     label = "Extract Thumbnail"
 
-    families = ["review", "render.farm"]
+    families = ["review"]
     hosts = ["nuke"]
 
     def process(self, instance):
+        if "render.farm" in instance.data["families"]:
+            return
 
         with anlib.maintained_selection():
             self.log.debug("instance: {}".format(instance))
@@ -125,11 +127,11 @@ class ExtractThumbnail(pype.api.Extractor):
         repre = {
             'name': name,
             'ext': "jpeg",
+            "outputName": "thumb",
             'files': file,
             "stagingDir": staging_dir,
             "frameStart": first_frame,
             "frameEnd": last_frame,
-            "anatomy_template": "render",
             "tags": tags
         }
         instance.data["representations"].append(repre)
@@ -152,7 +154,7 @@ class ExtractThumbnail(pype.api.Extractor):
 
         ipn_orig = None
         for v in [n for n in nuke.allNodes()
-                  if "Viewer" in n.Class()]:
+                  if "Viewer" == n.Class()]:
             ip = v['input_process'].getValue()
             ipn = v['input_process_node'].getValue()
             if "VIEWER_INPUT" not in ipn and ip:
