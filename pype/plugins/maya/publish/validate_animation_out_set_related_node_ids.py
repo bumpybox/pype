@@ -21,6 +21,7 @@ class ValidateOutRelatedNodeIds(pyblish.api.InstancePlugin):
     hosts = ['maya']
     label = 'Animation Out Set Related Node Ids'
     actions = [pype.hosts.maya.action.SelectInvalidAction, pype.api.RepairAction]
+    optional = True
 
     def process(self, instance):
         """Process all meshes"""
