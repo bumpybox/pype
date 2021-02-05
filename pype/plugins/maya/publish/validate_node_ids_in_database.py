@@ -22,6 +22,7 @@ class ValidateNodeIdsInDatabase(pyblish.api.InstancePlugin):
     label = 'Node Ids in Database'
     hosts = ['maya']
     families = ["*"]
+    optional = True
 
     actions = [pype.hosts.maya.action.SelectInvalidAction,
                pype.hosts.maya.action.GenerateUUIDsOnInvalidAction]
