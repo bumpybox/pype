@@ -217,4 +217,5 @@ class NextTaskUpdate(BaseEvent):
 
 
 def register(session, plugins_presets):
-    NextTaskUpdate(session, plugins_presets).register()
+    # NextTaskUpdate(session, plugins_presets).register()
+    pass
