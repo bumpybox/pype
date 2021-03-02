@@ -99,6 +99,10 @@ class SubmitTranscodeDeadline(pyblish.api.InstancePlugin):
                     path = "{}:{}".format(url.scheme, path)
                 path = os.path.abspath(path)
 
+                # Ignore "wav" media.
+                if path.endswith(".wav"):
+                    continue
+
                 # HARDCODED frame pattern for exr files. This should be
                 # extended to all image sequences.
                 if path.endswith(".exr"):
@@ -160,6 +164,11 @@ class SubmitTranscodeDeadline(pyblish.api.InstancePlugin):
                     "OutputDirectory0": job["output_path"],
                     "EnvironmentKeyValue0": "PYTHONPATH={}".format(PYTHONPATH),
                     "EnvironmentKeyValue1": "PATH={}".format(PATH),
+                    "EnvironmentKeyValue2": (
+                        "PYPE_PROJECT_CONFIGS={}".format(
+                            os.environ["PYPE_PROJECT_CONFIGS"]
+                        )
+                    ),
                     "AssetDependency0": job["input_path"]
                 },
                 "PluginInfo": {
@@ -255,6 +264,11 @@ class SubmitTranscodeDeadline(pyblish.api.InstancePlugin):
                 "OutputDirectory0": output_path,
                 "EnvironmentKeyValue0": "PYTHONPATH={}".format(PYTHONPATH),
                 "EnvironmentKeyValue1": "PATH={}".format(PATH),
+                "EnvironmentKeyValue2": (
+                    "PYPE_PROJECT_CONFIGS={}".format(
+                        os.environ["PYPE_PROJECT_CONFIGS"]
+                    )
+                ),
                 "AssetDependency0": audio_published_path
             },
             "PluginInfo": {
