@@ -1,21 +1,35 @@
 from avalon import api, io
 from avalon.nuke import lib as anlib
-from avalon.nuke import containerise, update_container
+from avalon.nuke import containerise
 import nuke
 
 
-class AlembicCameraLoader(api.Loader):
+class AlembicPointcacheLoader(api.Loader):
     """
-    This will load alembic camera into script.
+    This will load alembic pointcache into script.
     """
 
-    families = ["camera"]
+    families = ["pointcache"]
     representations = ["abc"]
 
-    label = "Load Alembic Camera"
-    icon = "camera"
+    label = "Load Alembic Pointcache"
+    icon = "code-fork"
     color = "orange"
     node_color = "0x3469ffff"
+
+    def create_read_geo(self, object_name, file, fps):
+        node = nuke.createNode(
+            "ReadGeo2", "name {} file {}".format(object_name, file)
+        )
+        node.forceValidate()
+        node["frame_rate"].setValue(float(fps))
+
+        # Ensure all items are imported and selected.
+        scene_view = node['scene_view']
+        scene_view.setImportedItems(scene_view.getAllItems())
+        scene_view.setSelectedItems(scene_view.getAllItems())
+
+        return node
 
     def load(self, context, name, namespace, data):
         # get main variables
@@ -26,7 +40,9 @@ class AlembicCameraLoader(api.Loader):
         last = version_data.get("frameEnd", None)
         fps = version_data.get("fps") or nuke.root()["fps"].getValue()
         namespace = namespace or context['asset']['name']
-        object_name = "{}_{}".format(name, namespace)
+        # Adding "1" to the end will encourage Nuke to increment this number
+        # for multiple instances of the pointcache.
+        object_name = "{}_{}_1".format(name, namespace)
 
         # prepare data for imprinting
         # add additional metadata from the version to imprint to Avalon knob
@@ -44,35 +60,30 @@ class AlembicCameraLoader(api.Loader):
         file = self.fname.replace("\\", "/")
 
         with anlib.maintained_selection():
-            camera_node = nuke.createNode(
-                "Camera2",
-                "name {} file {} read_from_file True".format(
-                    object_name, file),
-                inpanel=False
-            )
-            camera_node.forceValidate()
-            camera_node["frame_rate"].setValue(float(fps))
+            node = self.create_read_geo(object_name, file, fps)
+            node_name = node.name()
 
             # workaround because nuke's bug is not adding
             # animation keys properly
-            xpos = camera_node.xpos()
-            ypos = camera_node.ypos()
+            xpos = node.xpos()
+            ypos = node.ypos()
             nuke.nodeCopy("%clipboard%")
-            nuke.delete(camera_node)
+            nuke.delete(node)
             nuke.nodePaste("%clipboard%")
-            camera_node = nuke.toNode(object_name)
-            camera_node.setXYpos(xpos, ypos)
+            node = nuke.toNode(node_name)
+            node.setXYpos(xpos, ypos)
 
         # color node by correct color by actual version
-        self.node_version_color(version, camera_node)
+        self.node_version_color(version, node)
 
         return containerise(
-            node=camera_node,
+            node=node,
             name=name,
             namespace=namespace,
             context=context,
             loader=self.__class__.__name__,
-            data=data_imprint)
+            data=data_imprint
+        )
 
     def update(self, container, representation):
         """
@@ -90,80 +101,87 @@ class AlembicCameraLoader(api.Loader):
         Returns:
             None
         """
-        # Get version from io
+        # get main variables
         version = io.find_one({
             "type": "version",
             "_id": representation["parent"]
         })
-        object_name = container['objectName']
-        # get corresponding node
-        camera_node = nuke.toNode(object_name)
-
-        # get main variables
         version_data = version.get("data", {})
         vname = version.get("name", None)
         first = version_data.get("frameStart", None)
         last = version_data.get("frameEnd", None)
         fps = version_data.get("fps") or nuke.root()["fps"].getValue()
+        file = api.get_representation_path(representation).replace("\\", "/")
+        object_name = container['objectName']
+
+        old_node = nuke.toNode(object_name)
+        xpos = old_node.xpos()
+        ypos = old_node.ypos()
+        dependencies = old_node.dependencies()
+
+        dependent_connections = []
+        for dependent in old_node.dependent():
+            for index in range(0, dependent.inputs()):
+                connected_node = dependent.input(index)
+                if connected_node == old_node:
+                    dependent_connections.append(
+                        {"input": index, "node": dependent}
+                    )
+
+        nuke.delete(old_node)
+
+        # Need to re-create node cause that is only way to avoid the pop-up
+        # dialog for importing.
+        node = self.create_read_geo(object_name, file, fps)
+        node.setXYpos(xpos, ypos)
+
+        # link to original input nodes
+        for i, input in enumerate(dependencies):
+            node.setInput(i, input)
+
+        for connection in dependent_connections:
+            connection["node"].setInput(connection["input"], node)
 
         # prepare data for imprinting
         # add additional metadata from the version to imprint to Avalon knob
         add_keys = ["source", "author", "fps"]
 
-        data_imprint = {"representation": str(representation["_id"]),
-                        "frameStart": first,
-                        "frameEnd": last,
-                        "version": vname,
-                        "objectName": object_name}
+        data_imprint = {
+            "representation": str(representation["_id"]),
+            "frameStart": first,
+            "frameEnd": last,
+            "version": vname,
+            "objectName": object_name
+        }
 
         for k in add_keys:
             data_imprint.update({k: version_data[k]})
 
-        # getting file path
-        file = api.get_representation_path(representation).replace("\\", "/")
-
-        with anlib.maintained_selection():
-            camera_node = nuke.toNode(object_name)
-            camera_node['selected'].setValue(True)
-
-            # collect input output dependencies
-            dependencies = camera_node.dependencies()
-
-            dependent_connections = []
-            for dependent in camera_node.dependent():
-                for index in range(0, dependent.inputs()):
-                    connected_node = dependent.input(index)
-                    if connected_node == camera_node:
-                        dependent_connections.append(
-                            {"input": index, "node": dependent}
-                        )
-
-            camera_node["frame_rate"].setValue(float(fps))
-            camera_node["file"].setValue(file)
-
-            # workaround because nuke's bug is
-            # not adding animation keys properly
-            xpos = camera_node.xpos()
-            ypos = camera_node.ypos()
-            nuke.nodeCopy("%clipboard%")
-            nuke.delete(camera_node)
-            nuke.nodePaste("%clipboard%")
-            camera_node = nuke.toNode(object_name)
-            camera_node.setXYpos(xpos, ypos)
-
-            # link to original input nodes
-            for i, input in enumerate(dependencies):
-                camera_node.setInput(i, input)
-            # link to original output nodes
-            for connection in dependent_connections:
-                connection["node"].setInput(connection["input"], camera_node)
+        node["frame_rate"].setValue(float(fps))
 
         # color node by correct color by actual version
-        self.node_version_color(version, camera_node)
+        self.node_version_color(version, node)
 
-        self.log.info("udated to version: {}".format(version.get("name")))
-
-        return update_container(camera_node, data_imprint)
+        # Containerise node because its been re-created.
+        version = io.find_one({"_id": representation["parent"]})
+        subset = io.find_one({"_id": version["parent"]})
+        asset = io.find_one({"_id": subset["parent"]})
+        project = io.find_one({"_id": asset["parent"]})
+        context = {
+            "project": project,
+            "asset": asset,
+            "subset": subset,
+            "version": version,
+            "representation": representation
+        }
+        containerise(
+            node=node,
+            name=container["name"],
+            namespace=container["namespace"],
+            context=context,
+            loader=self.__class__.__name__,
+            data=data_imprint
+        )
 
     def node_version_color(self, version, node):
         """ Coloring a node by correct color by actual version
